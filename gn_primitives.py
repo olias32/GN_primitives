@@ -2,7 +2,7 @@ import bpy
 
 bl_info = {
     "name": "GN Primitives Pack",
-    "author": "miculToma",
+    "author": "olias32",
     "version": (1, 1),
     "blender": (4, 0, 0),
     "location": "View3D > Add > Mesh > GN Primitives",
