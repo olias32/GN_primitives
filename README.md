@@ -1,4 +1,5 @@
 <img width="1788" height="727" alt="_ (Unsaved) - Blender 5 0 0_b83W" src="https://github.com/user-attachments/assets/d8417f2e-a5b8-4b42-81f7-ad6a27d02402" />
+<br />
 
 If you miss the non-destructive primitives workflow in 3D Studio Max, you can now use GN_Primitives to replicate it in Blender.
 The script created Geometry Nodes objects that rely on the Blender Mesh Primitives, but allows you to change the base properties, like size and number of segments even after the creation step.
