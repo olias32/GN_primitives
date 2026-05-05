@@ -1,9 +1,10 @@
 import bpy
+import math
 
 bl_info = {
     "name": "GN Primitives Pack",
     "author": "olias32",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (4, 0, 0),
     "location": "View3D > Add > Mesh > GN Primitives",
     "description": "Adds procedural Geometry Node primitives to the Mesh menu",
@@ -67,6 +68,195 @@ def create_gn_cylinder_tree():
     group.links.new(cyl.outputs[0], gn_out.inputs[0])
     return group
 
+def create_gn_torus_tree():
+    group = bpy.data.node_groups.new("GN Torus", 'GeometryNodeTree')
+    group.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    rm = group.interface.new_socket("Major Radius", in_out='INPUT', socket_type='NodeSocketFloat'); rm.default_value = 2
+    rn = group.interface.new_socket("Minor Radius", in_out='INPUT', socket_type='NodeSocketFloat'); rn.default_value = 0.5
+    sm = group.interface.new_socket("Major Segments", in_out='INPUT', socket_type='NodeSocketInt'); sm.default_value = 32
+    sn = group.interface.new_socket("Minor Segments", in_out='INPUT', socket_type='NodeSocketInt'); sn.default_value = 16
+    group.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    nodes = group.nodes
+    nodes.clear()
+    gn_in, c1, c2, ctm, gn_out = nodes.new('NodeGroupInput'), nodes.new('GeometryNodeCurvePrimitiveCircle'), nodes.new('GeometryNodeCurvePrimitiveCircle'), nodes.new('GeometryNodeCurveToMesh'), nodes.new('NodeGroupOutput')
+    group.links.new(gn_in.outputs["Major Radius"], c1.inputs["Radius"])
+    group.links.new(gn_in.outputs["Major Segments"], c1.inputs["Resolution"])
+    group.links.new(gn_in.outputs["Minor Radius"], c2.inputs["Radius"])
+    group.links.new(gn_in.outputs["Minor Segments"], c2.inputs["Resolution"])
+    group.links.new(c1.outputs[0], ctm.inputs[0])
+    group.links.new(c2.outputs[0], ctm.inputs[1])
+    group.links.new(ctm.outputs[0], gn_out.inputs[0])
+    return group
+
+def create_gn_tube_tree():
+    group_name = "GN Tube"
+    
+    if group_name in bpy.data.node_groups:
+        bpy.data.node_groups.remove(bpy.data.node_groups[group_name])
+        
+    tree = bpy.data.node_groups.new(name=group_name, type='GeometryNodeTree')
+    
+    # ==========================================
+    # 1. GROUP INPUT/OUTPUT INTERFACES
+    # ==========================================
+    tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    
+    sock = tree.interface.new_socket(name="Outer radius", in_out='INPUT', socket_type='NodeSocketFloat')
+    sock.default_value, sock.min_value = 2.0, 0.0
+    
+    sock = tree.interface.new_socket(name="Inner radius", in_out='INPUT', socket_type='NodeSocketFloat')
+    sock.default_value, sock.min_value = 1.0, 0.0
+    
+    sock = tree.interface.new_socket(name="Height", in_out='INPUT', socket_type='NodeSocketFloat')
+    sock.default_value, sock.min_value = 2.0, 0.0
+    
+    sock = tree.interface.new_socket(name="Side segments", in_out='INPUT', socket_type='NodeSocketInt')
+    sock.default_value, sock.min_value = 32, 3
+    
+    sock = tree.interface.new_socket(name="Height segments", in_out='INPUT', socket_type='NodeSocketInt')
+    sock.default_value, sock.min_value = 1, 1
+    
+    sock = tree.interface.new_socket(name="Cap segments", in_out='INPUT', socket_type='NodeSocketInt')
+    sock.default_value, sock.min_value = 1, 1
+    
+    tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+
+    # ==========================================
+    # 2. CREATE NODES
+    # ==========================================
+    nodes = tree.nodes
+    
+    group_in = nodes.new('NodeGroupInput')
+    group_out = nodes.new('NodeGroupOutput')
+    
+    math_max = nodes.new('ShaderNodeMath')
+    math_max.operation = 'MAXIMUM'
+    
+    math_min = nodes.new('ShaderNodeMath')
+    math_min.operation = 'MINIMUM'
+    
+    comb_xyz_1 = nodes.new('ShaderNodeCombineXYZ')
+    comb_xyz_2 = nodes.new('ShaderNodeCombineXYZ')
+    comb_xyz_3 = nodes.new('ShaderNodeCombineXYZ')
+    comb_xyz_4 = nodes.new('ShaderNodeCombineXYZ')
+    
+    sub_1 = nodes.new('ShaderNodeMath')
+    sub_1.operation = 'SUBTRACT'
+    sub_1.inputs[1].default_value = 1.0
+    sub_1.label = "Subtract"
+    
+    sub_2 = nodes.new('ShaderNodeMath')
+    sub_2.operation = 'SUBTRACT'
+    sub_2.inputs[1].default_value = 1.0
+    sub_2.label = "Subtract"
+    
+    line_1 = nodes.new('GeometryNodeCurvePrimitiveLine')
+    line_2 = nodes.new('GeometryNodeCurvePrimitiveLine')
+    line_3 = nodes.new('GeometryNodeCurvePrimitiveLine')
+    line_4 = nodes.new('GeometryNodeCurvePrimitiveLine')
+    
+    subdiv_1 = nodes.new('GeometryNodeSubdivideCurve')
+    subdiv_2 = nodes.new('GeometryNodeSubdivideCurve')
+    subdiv_3 = nodes.new('GeometryNodeSubdivideCurve')
+    subdiv_4 = nodes.new('GeometryNodeSubdivideCurve')
+    
+    join_geom = nodes.new('GeometryNodeJoinGeometry')
+    
+    trans_geom = nodes.new('GeometryNodeTransform')
+    trans_geom.inputs['Rotation'].default_value = (math.radians(90), 0.0, 0.0)
+    
+    circle = nodes.new('GeometryNodeCurvePrimitiveCircle')
+    # THE FIX: A microscopic radius allows Blender to calculate outward math.
+    circle.inputs['Radius'].default_value = 0.001 
+    
+    rev_curve = nodes.new('GeometryNodeReverseCurve')
+    
+    curve_to_mesh = nodes.new('GeometryNodeCurveToMesh')
+    shade_smooth = nodes.new('GeometryNodeSetShadeSmooth')
+    
+    # ==========================================
+    # 3. LINK THE NODES
+    # ==========================================
+    links = tree.links
+    
+    links.new(group_in.outputs['Outer radius'], math_max.inputs[0])
+    links.new(group_in.outputs['Inner radius'], math_max.inputs[1])
+    links.new(group_in.outputs['Outer radius'], math_min.inputs[0])
+    links.new(group_in.outputs['Inner radius'], math_min.inputs[1])
+    
+    links.new(math_max.outputs[0], comb_xyz_1.inputs['X'])
+    links.new(group_in.outputs['Height'], comb_xyz_1.inputs['Z'])
+    links.new(math_max.outputs[0], comb_xyz_2.inputs['X']) 
+    links.new(math_min.outputs[0], comb_xyz_3.inputs['X']) 
+    links.new(math_min.outputs[0], comb_xyz_4.inputs['X'])
+    links.new(group_in.outputs['Height'], comb_xyz_4.inputs['Z'])
+    
+    links.new(group_in.outputs['Height segments'], sub_1.inputs[0])
+    links.new(group_in.outputs['Cap segments'], sub_2.inputs[0])
+    
+    links.new(comb_xyz_1.outputs[0], line_1.inputs['Start'])
+    links.new(comb_xyz_2.outputs[0], line_1.inputs['End'])
+    links.new(comb_xyz_2.outputs[0], line_2.inputs['Start'])
+    links.new(comb_xyz_3.outputs[0], line_2.inputs['End'])
+    links.new(comb_xyz_3.outputs[0], line_3.inputs['Start'])
+    links.new(comb_xyz_4.outputs[0], line_3.inputs['End'])
+    links.new(comb_xyz_4.outputs[0], line_4.inputs['Start'])
+    links.new(comb_xyz_1.outputs[0], line_4.inputs['End'])
+    
+    links.new(line_1.outputs['Curve'], subdiv_1.inputs['Curve'])
+    links.new(sub_1.outputs[0], subdiv_1.inputs['Cuts'])
+    links.new(line_2.outputs['Curve'], subdiv_2.inputs['Curve'])
+    links.new(sub_2.outputs[0], subdiv_2.inputs['Cuts'])
+    links.new(line_3.outputs['Curve'], subdiv_3.inputs['Curve'])
+    links.new(sub_1.outputs[0], subdiv_3.inputs['Cuts'])
+    links.new(line_4.outputs['Curve'], subdiv_4.inputs['Curve'])
+    links.new(sub_2.outputs[0], subdiv_4.inputs['Cuts'])
+    
+    links.new(subdiv_1.outputs['Curve'], join_geom.inputs['Geometry'])
+    links.new(subdiv_2.outputs['Curve'], join_geom.inputs['Geometry'])
+    links.new(subdiv_3.outputs['Curve'], join_geom.inputs['Geometry'])
+    links.new(subdiv_4.outputs['Curve'], join_geom.inputs['Geometry'])
+    
+    links.new(group_in.outputs['Side segments'], circle.inputs['Resolution'])
+    links.new(circle.outputs['Curve'], rev_curve.inputs['Curve'])
+    links.new(join_geom.outputs['Geometry'], trans_geom.inputs['Geometry'])
+    
+    links.new(rev_curve.outputs['Curve'], curve_to_mesh.inputs['Curve'])
+    links.new(trans_geom.outputs['Geometry'], curve_to_mesh.inputs['Profile Curve'])
+    
+    links.new(curve_to_mesh.outputs['Mesh'], shade_smooth.inputs['Geometry'])
+    links.new(shade_smooth.outputs['Geometry'], group_out.inputs['Geometry'])
+
+    # ==========================================
+    # 4. BASIC NODE ARRANGEMENT (Cosmetic)
+    # ==========================================
+    group_in.location = (-800, 0)
+    math_max.location = (-600, 100)
+    math_min.location = (-600, -100)
+    sub_1.location = (-600, -300)
+    sub_2.location = (-600, -450)
+    comb_xyz_1.location = (-400, 300)
+    comb_xyz_2.location = (-400, 150)
+    comb_xyz_3.location = (-400, 0)
+    comb_xyz_4.location = (-400, -150)
+    line_1.location = (-200, 300)
+    line_2.location = (-200, 150)
+    line_3.location = (-200, 0)
+    line_4.location = (-200, -150)
+    subdiv_1.location = (0, 300)
+    subdiv_2.location = (0, 150)
+    subdiv_3.location = (0, 0)
+    subdiv_4.location = (0, -150)
+    join_geom.location = (200, 150)
+    trans_geom.location = (400, 0)
+    circle.location = (200, 400)
+    rev_curve.location = (400, 400)
+    curve_to_mesh.location = (600, 300)
+    shade_smooth.location = (800, 300)
+    group_out.location = (1000, 300)
+
+    return tree
+    
 def create_gn_cone_tree():
     group = bpy.data.node_groups.new("GN Cone", 'GeometryNodeTree')
     group.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
@@ -125,18 +315,6 @@ class MESH_OT_add_gn_primitive_v2(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     type: bpy.props.StringProperty()
 
-    @classmethod
-    def description(cls, context, properties):
-        tooltips = {
-            'PLANE': "Add a procedural Plane",
-            'CUBE': "Add a procedural Cube",
-            'CYLINDER': "Add a procedural Cylinder",
-            'CONE': "Add a procedural Cone",
-            'UV_SPHERE': "Add a procedural UV Sphere",
-            'ICO_SPHERE': "Add a procedural Ico Sphere"
-        }
-        return tooltips.get(properties.type, "Add a GN Primitive")
-
     def execute(self, context):
         lookup = {
             'PLANE': ("GN Plane", create_gn_plane_tree),
@@ -144,19 +322,17 @@ class MESH_OT_add_gn_primitive_v2(bpy.types.Operator):
             'CYLINDER': ("GN Cylinder", create_gn_cylinder_tree),
             'CONE': ("GN Cone", create_gn_cone_tree),
             'UV_SPHERE': ("GN UV Sphere", create_gn_uv_sphere_tree),
-            'ICO_SPHERE': ("GN Ico Sphere", create_gn_ico_sphere_tree)
+            'ICO_SPHERE': ("GN Ico Sphere", create_gn_ico_sphere_tree),
+            'TORUS': ("GN Torus", create_gn_torus_tree),
+            'TUBE': ("GN Tube", create_gn_tube_tree)
         }
         
-        if self.type not in lookup:
-            return {'CANCELLED'}
-            
         name, func = lookup[self.type]
         mesh = bpy.data.meshes.new(name)
         obj = bpy.data.objects.new(name, mesh)
         context.collection.objects.link(obj)
         
         mod = obj.modifiers.new(name="GeometryNodes", type='NODES')
-        # This double-check prevents data-block name collisions
         node_group = bpy.data.node_groups.get(name)
         if not node_group:
             node_group = func()
@@ -175,45 +351,31 @@ class VIEW3D_MT_gn_primitives_v2(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        
-        # Defining items to loop through to make the code cleaner and safer
         items = [
             ("GN Plane", 'PLANE', 'MESH_GRID'),
             ("GN Cube", 'CUBE', 'MESH_CUBE'),
             ("GN Cylinder", 'CYLINDER', 'MESH_CYLINDER'),
             ("GN Cone", 'CONE', 'MESH_CONE'),
             ("GN UV Sphere", 'UV_SPHERE', 'SPHERE'),
-            ("GN Ico Sphere", 'ICO_SPHERE', 'MESH_ICOSPHERE'), # Updated icon name
+            ("GN Ico Sphere", 'ICO_SPHERE', 'MESH_ICOSPHERE'),
+            ("GN Torus", 'TORUS', 'MESH_TORUS'),
+            ("GN Tube", 'TUBE', 'MESH_CYLINDER'),
         ]
-
         for text, op_type, icon_name in items:
-            try:
-                layout.operator("mesh.add_gn_primitive_v2", text=text, icon=icon_name).type = op_type
-            except:
-                # If an icon or type fails, draw it with a default icon so the menu doesn't break
-                layout.operator("mesh.add_gn_primitive_v2", text=text, icon='DOT').type = op_type
+            layout.operator("mesh.add_gn_primitive_v2", text=text, icon=icon_name).type = op_type
 
 def menu_func(self, context):
     self.layout.menu("VIEW3D_MT_gn_primitives_v2", icon='GEOMETRY_NODES')
 
-
-
-# --- REGISTRATION ---
-
-classes = (
-    MESH_OT_add_gn_primitive_v2,
-    VIEW3D_MT_gn_primitives_v2,
-)
+classes = (MESH_OT_add_gn_primitive_v2, VIEW3D_MT_gn_primitives_v2)
 
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    for cls in classes: bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_mesh_add.prepend(menu_func)
 
 def unregister():
     bpy.types.VIEW3D_MT_mesh_add.remove(menu_func)
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+    for cls in reversed(classes): bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":
     register()
