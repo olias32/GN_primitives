@@ -49,23 +49,111 @@ def create_gn_cube_tree():
     return group
 
 def create_gn_cylinder_tree():
-    group = bpy.data.node_groups.new("GN Cylinder", 'GeometryNodeTree')
-    group.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-    r = group.interface.new_socket("Radius", in_out='INPUT', socket_type='NodeSocketFloat'); r.default_value, r.min_value = 1.0, 0.0
-    h = group.interface.new_socket("Height", in_out='INPUT', socket_type='NodeSocketFloat'); h.default_value, h.min_value = 2.0, 0.0
-    s = group.interface.new_socket("Side segments", in_out='INPUT', socket_type='NodeSocketInt'); s.default_value, s.min_value = 32, 3
-    hs = group.interface.new_socket("Height segments", in_out='INPUT', socket_type='NodeSocketInt'); hs.default_value, hs.min_value = 1, 1
-    cs = group.interface.new_socket("Cap segments", in_out='INPUT', socket_type='NodeSocketInt'); cs.default_value, cs.min_value = 1, 1
-    group.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    group_name = "GN Cylinder"
+    
+    # Check if the node group already exists, clear it if so
+    if group_name in bpy.data.node_groups:
+        bpy.data.node_groups.remove(bpy.data.node_groups[group_name])
+        
+    group = bpy.data.node_groups.new(group_name, 'GeometryNodeTree')
+    
+    # ==========================================
+    # 1. CREATE GROUP INPUT/OUTPUT INTERFACES
+    # ==========================================
+    group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    
+    # Changed to a single "Radius" input
+    r = group.interface.new_socket(name="Radius", in_out='INPUT', socket_type='NodeSocketFloat')
+    r.default_value, r.min_value = 1.0, 0.0
+    
+    h = group.interface.new_socket(name="Height", in_out='INPUT', socket_type='NodeSocketFloat')
+    h.default_value, h.min_value = 2.0, 0.0
+    
+    s = group.interface.new_socket(name="Side segments", in_out='INPUT', socket_type='NodeSocketInt')
+    s.default_value, s.min_value = 32, 3
+    
+    hs = group.interface.new_socket(name="Height segments", in_out='INPUT', socket_type='NodeSocketInt')
+    hs.default_value, hs.min_value = 1, 1
+    
+    cs = group.interface.new_socket(name="Cap segments", in_out='INPUT', socket_type='NodeSocketInt')
+    cs.default_value, cs.min_value = 0, 0
+    
+    group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    
+    # ==========================================
+    # 2. CREATE NODES
+    # ==========================================
     nodes = group.nodes
-    nodes.clear()
-    gn_in, cyl, gn_out = nodes.new('NodeGroupInput'), nodes.new('GeometryNodeMeshCylinder'), nodes.new('NodeGroupOutput')
-    group.links.new(gn_in.outputs["Side segments"], cyl.inputs["Vertices"])
-    group.links.new(gn_in.outputs["Height segments"], cyl.inputs["Side Segments"])
-    group.links.new(gn_in.outputs["Cap segments"], cyl.inputs["Fill Segments"])
-    group.links.new(gn_in.outputs["Radius"], cyl.inputs["Radius"])
-    group.links.new(gn_in.outputs["Height"], cyl.inputs["Depth"])
-    group.links.new(cyl.outputs[0], gn_out.inputs[0])
+    
+    gn_in = nodes.new('NodeGroupInput')
+    gn_out = nodes.new('NodeGroupOutput')
+    
+    # Compare Node (Greater Than 0)
+    compare = nodes.new('FunctionNodeCompare')
+    compare.data_type = 'INT'
+    compare.operation = 'GREATER_THAN'
+    compare.inputs['B'].default_value = 0 
+    
+    # Math Node (Maximum)
+    math_max = nodes.new('ShaderNodeMath')
+    math_max.operation = 'MAXIMUM'
+    math_max.inputs[1].default_value = 1.0  
+    
+    # Top Cone (N-Gon)
+    cone_ngon = nodes.new('GeometryNodeMeshCone')
+    cone_ngon.fill_type = 'NGON'
+    cone_ngon.inputs["Fill Segments"].default_value = 1 # Safely locked at 1
+    
+    # Bottom Cone (Triangles)
+    cone_tri = nodes.new('GeometryNodeMeshCone')
+    cone_tri.fill_type = 'TRIANGLE_FAN' 
+    
+    # Switch Node
+    switch = nodes.new('GeometryNodeSwitch')
+    switch.input_type = 'GEOMETRY'
+    
+    # ==========================================
+    # 3. LINK THE NODES
+    # ==========================================
+    links = group.links
+    
+    # Link common inputs to BOTH cones
+    for cone in [cone_tri, cone_ngon]:
+        links.new(gn_in.outputs["Side segments"], cone.inputs["Vertices"])
+        links.new(gn_in.outputs["Height segments"], cone.inputs["Side Segments"])
+        
+        # Connect the single Radius input to BOTH top and bottom sockets
+        links.new(gn_in.outputs["Radius"], cone.inputs["Radius Top"])
+        links.new(gn_in.outputs["Radius"], cone.inputs["Radius Bottom"])
+        
+        links.new(gn_in.outputs["Height"], cone.inputs["Depth"])
+        
+    # Cap Segments Logic Routing
+    links.new(gn_in.outputs["Cap segments"], compare.inputs['A']) 
+    links.new(gn_in.outputs["Cap segments"], math_max.inputs[0]) 
+    
+    # Maximum output goes to Triangle Fill Segments
+    links.new(math_max.outputs[0], cone_tri.inputs["Fill Segments"])
+    
+    # Switch Logic Connections
+    links.new(compare.outputs["Result"], switch.inputs["Switch"])
+    links.new(cone_ngon.outputs["Mesh"], switch.inputs["False"])
+    links.new(cone_tri.outputs["Mesh"], switch.inputs["True"])
+    
+    # Final Output
+    links.new(switch.outputs["Output"], gn_out.inputs["Geometry"])
+    
+    # ==========================================
+    # 4. BASIC NODE ARRANGEMENT (Cosmetic)
+    # ==========================================
+    gn_in.location = (-600, 0)
+    compare.location = (-200, 300)
+    math_max.location = (-200, -100)
+    cone_ngon.location = (0, 200)
+    cone_tri.location = (0, -200)
+    switch.location = (300, 100)
+    gn_out.location = (500, 100)
+    
     return group
 
 def create_gn_torus_tree():
@@ -258,23 +346,110 @@ def create_gn_tube_tree():
     return tree
     
 def create_gn_cone_tree():
-    group = bpy.data.node_groups.new("GN Cone", 'GeometryNodeTree')
-    group.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-    rt = group.interface.new_socket("Radius top", in_out='INPUT', socket_type='NodeSocketFloat'); rt.default_value, rt.min_value = 0.0, 0.0
-    rb = group.interface.new_socket("Radius bottom", in_out='INPUT', socket_type='NodeSocketFloat'); rb.default_value, rb.min_value = 1.0, 0.0
-    s = group.interface.new_socket("Side segments", in_out='INPUT', socket_type='NodeSocketInt'); s.default_value, s.min_value = 32, 3
-    hs = group.interface.new_socket("Height segments", in_out='INPUT', socket_type='NodeSocketInt'); hs.default_value, hs.min_value = 1, 1
-    cs = group.interface.new_socket("Cap segments", in_out='INPUT', socket_type='NodeSocketInt'); cs.default_value, cs.min_value = 1, 1
-    group.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    group_name = "GN Cone"
+    
+    # Check if the node group already exists, clear it if so
+    if group_name in bpy.data.node_groups:
+        bpy.data.node_groups.remove(bpy.data.node_groups[group_name])
+        
+    group = bpy.data.node_groups.new(group_name, 'GeometryNodeTree')
+    
+    # ==========================================
+    # 1. CREATE GROUP INPUT/OUTPUT INTERFACES
+    # ==========================================
+    group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    
+    rt = group.interface.new_socket(name="Radius top", in_out='INPUT', socket_type='NodeSocketFloat')
+    rt.default_value, rt.min_value = 0.0, 0.0
+    
+    rb = group.interface.new_socket(name="Radius bottom", in_out='INPUT', socket_type='NodeSocketFloat')
+    rb.default_value, rb.min_value = 1.0, 0.0
+    
+    h = group.interface.new_socket(name="Height", in_out='INPUT', socket_type='NodeSocketFloat')
+    h.default_value, h.min_value = 2.0, 0.0
+    
+    s = group.interface.new_socket(name="Side segments", in_out='INPUT', socket_type='NodeSocketInt')
+    s.default_value, s.min_value = 32, 3
+    
+    hs = group.interface.new_socket(name="Height segments", in_out='INPUT', socket_type='NodeSocketInt')
+    hs.default_value, hs.min_value = 1, 1
+    
+    cs = group.interface.new_socket(name="Cap segments", in_out='INPUT', socket_type='NodeSocketInt')
+    cs.default_value, cs.min_value = 0, 0
+    
+    group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    
+    # ==========================================
+    # 2. CREATE NODES
+    # ==========================================
     nodes = group.nodes
-    nodes.clear()
-    gn_in, cone, gn_out = nodes.new('NodeGroupInput'), nodes.new('GeometryNodeMeshCone'), nodes.new('NodeGroupOutput')
-    group.links.new(gn_in.outputs["Side segments"], cone.inputs["Vertices"])
-    group.links.new(gn_in.outputs["Height segments"], cone.inputs["Side Segments"])
-    group.links.new(gn_in.outputs["Cap segments"], cone.inputs["Fill Segments"])
-    group.links.new(gn_in.outputs["Radius top"], cone.inputs["Radius Top"])
-    group.links.new(gn_in.outputs["Radius bottom"], cone.inputs["Radius Bottom"])
-    group.links.new(cone.outputs[0], gn_out.inputs[0])
+    
+    gn_in = nodes.new('NodeGroupInput')
+    gn_out = nodes.new('NodeGroupOutput')
+    
+    # Compare Node (Greater Than 0)
+    compare = nodes.new('FunctionNodeCompare')
+    compare.data_type = 'INT'
+    compare.operation = 'GREATER_THAN'
+    compare.inputs['B'].default_value = 0 
+    
+    # Math Node (Maximum)
+    math_max = nodes.new('ShaderNodeMath')
+    math_max.operation = 'MAXIMUM'
+    math_max.inputs[1].default_value = 1.0  
+    
+    # Top Cone (N-Gon)
+    cone_ngon = nodes.new('GeometryNodeMeshCone')
+    cone_ngon.fill_type = 'NGON'
+    cone_ngon.inputs["Fill Segments"].default_value = 1 # Safely locked at 1
+    
+    # Bottom Cone (Triangles)
+    cone_tri = nodes.new('GeometryNodeMeshCone')
+    cone_tri.fill_type = 'TRIANGLE_FAN' 
+    
+    # Switch Node
+    switch = nodes.new('GeometryNodeSwitch')
+    switch.input_type = 'GEOMETRY'
+    
+    # ==========================================
+    # 3. LINK THE NODES
+    # ==========================================
+    links = group.links
+    
+    # Link common inputs to BOTH cones
+    for cone in [cone_tri, cone_ngon]:
+        links.new(gn_in.outputs["Side segments"], cone.inputs["Vertices"])
+        links.new(gn_in.outputs["Height segments"], cone.inputs["Side Segments"])
+        links.new(gn_in.outputs["Radius top"], cone.inputs["Radius Top"])
+        links.new(gn_in.outputs["Radius bottom"], cone.inputs["Radius Bottom"])
+        links.new(gn_in.outputs["Height"], cone.inputs["Depth"])
+        
+    # Cap Segments Logic Routing
+    links.new(gn_in.outputs["Cap segments"], compare.inputs['A']) 
+    links.new(gn_in.outputs["Cap segments"], math_max.inputs[0]) 
+    
+    # Maximum output goes to Triangle Fill Segments
+    links.new(math_max.outputs[0], cone_tri.inputs["Fill Segments"])
+    
+    # Switch Logic Connections
+    links.new(compare.outputs["Result"], switch.inputs["Switch"])
+    links.new(cone_ngon.outputs["Mesh"], switch.inputs["False"])
+    links.new(cone_tri.outputs["Mesh"], switch.inputs["True"])
+    
+    # Final Output
+    links.new(switch.outputs["Output"], gn_out.inputs["Geometry"])
+    
+    # ==========================================
+    # 4. BASIC NODE ARRANGEMENT (Cosmetic)
+    # ==========================================
+    gn_in.location = (-600, 0)
+    compare.location = (-200, 300)
+    math_max.location = (-200, -100)
+    cone_ngon.location = (0, 200)
+    cone_tri.location = (0, -200)
+    switch.location = (300, 100)
+    gn_out.location = (500, 100)
+    
     return group
 
 def create_gn_uv_sphere_tree():
